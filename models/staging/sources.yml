@@ -1,0 +1,6 @@
+version: 2
+
+sources:
+  - name: raw
+    database: GA4_DB
+    schema: RAW
