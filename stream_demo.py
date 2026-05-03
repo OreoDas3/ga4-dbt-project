@@ -65,7 +65,7 @@ def main():
     # --------------------------------------------------
     with open(PROFILE_PATH, "r") as f:
         config = yaml.safe_load(f)
-
+    print(config)
     sf = config["streaming"]["outputs"]["dev"]
 
     # --------------------------------------------------
