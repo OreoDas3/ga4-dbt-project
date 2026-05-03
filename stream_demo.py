@@ -364,6 +364,7 @@ def get_secret():
 # ======================================================
 def build_profiles(secret, file_path):
 
+    print(str(secret))
     profile = {
         "streaming": {
             "target": "dev",
@@ -376,7 +377,7 @@ def build_profiles(secret, file_path):
                     "role": secret["SNOWFLAKE_ROLE"],
                     "warehouse": secret["SNOWFLAKE_WAREHOUSE"],
                     "database": secret["SNOWFLAKE_DATABASE"],
-                    "schema": secret["SNOWFLAKE_SCHEMA_2"],
+                    "schema": secret["SNOWFLAKE_SCHEMA_N"],
                     "threads": 4
                 }
             }
