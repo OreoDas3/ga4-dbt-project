@@ -1,15 +1,22 @@
-Welcome to your new dbt project!
+🚀 production branch README.md
 
-### Using the starter project
+# Production Branch - dbt Transformations
 
-Try running the following commands:
-- dbt run
-- dbt test
+Production-grade dbt models running on AWS ECS Fargate using Docker images stored in Amazon ECR.
 
+## Responsibilities
+- Staging models
+- Intermediate transformations
+- Fact / dimension marts
+- First-click attribution
+- Last-click attribution
+- Data quality tests
 
-### Resources:
-- Learn more about dbt [in the docs](https://docs.getdbt.com/docs/introduction)
-- Check out [Discourse](https://discourse.getdbt.com/) for commonly asked questions and answers
-- Join the [chat](https://community.getdbt.com/) on Slack for live discussions and support
-- Find [dbt events](https://events.getdbt.com) near you
-- Check out [the blog](https://blog.getdbt.com/) for the latest news on dbt's development and best practices
+## Deployment Flow
+GitHub Push → GitHub Actions → Docker Build → ECR → ECS Task Run
+
+## Core Commands
+```bash
+ dbt run
+ dbt test
+ dbt docs generate
