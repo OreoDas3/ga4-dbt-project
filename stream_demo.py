@@ -42,7 +42,26 @@ def lambda_handler(event, context):
         print(str(e))
         raise e
 
+def build_profiles(secret, file_path):
 
+    profile = {
+        "streaming": {
+            "target": "dev",
+            "outputs": {
+                "dev": {
+                    "type": "snowflake",
+                    "account": secret["SNOWFLAKE_ACCOUNT"],
+                    "user": secret["SNOWFLAKE_USER"],
+                    "password": secret["SNOWFLAKE_PASSWORD"],
+                    "role": secret["SNOWFLAKE_ROLE"],
+                    "warehouse": secret["SNOWFLAKE_WAREHOUSE"],
+                    "database": secret["SNOWFLAKE_DATABASE"],
+                    "schema": secret["SNOWFLAKE_SCHEMA_2"],
+                    "threads": 4
+                }
+            }
+        }
+    }
 # ======================================================
 # MAIN
 # ======================================================
