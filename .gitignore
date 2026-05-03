@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+venv/
+.env
+
+# Secrets / configs
+profiles.yml
+profiles.yaml
+
+# dbt
+target/
+dbt_packages/
+logs/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Parquet / temp files
+*.parquet
+output/
+
+# Jupyter
+.ipynb_checkpoints/
