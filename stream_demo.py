@@ -1,64 +1,76 @@
-import snowflake.connector
-import pandas as pd
-import random
-import json
 import os
+import json
+import random
 import boto3
 import yaml
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import snowflake.connector
+
 from datetime import datetime, timezone
 
-# =====================================
-# CONFIG
-# =====================================
+# ======================================================
+# ENV VARIABLES
+# ======================================================
 SECRET_NAME = os.getenv("SNOWFLAKE_SECRET_NAME", "ga4/snowflake/dbt")
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
-ROWS_TO_GENERATE = int(os.getenv("ROWS_TO_GENERATE", "40000"))
+ROWS_TO_GENERATE = int(os.getenv("ROWS_TO_GENERATE", "1000"))
+
+TMP_DIR = "/tmp"
+PROFILE_PATH = f"{TMP_DIR}/profiles.yml"
 
 
-# =====================================
+# ======================================================
 # LAMBDA ENTRYPOINT
-# =====================================
+# ======================================================
 def lambda_handler(event, context):
     try:
-        main()
+        print("===== Lambda Started =====")
+
+        result = main()
+
+        print("===== Lambda Completed =====")
+
         return {
             "statusCode": 200,
-            "body": "Streaming load completed successfully"
+            "body": json.dumps(result)
         }
 
     except Exception as e:
-        return {
-            "statusCode": 500,
-            "body": str(e)
-        }
+        print("===== ERROR =====")
+        print(str(e))
+        raise e
 
 
-# =====================================
-# MAIN FLOW
-# =====================================
+# ======================================================
+# MAIN
+# ======================================================
 def main():
 
-    # ---------------------------------
-    # 1. FETCH SECRET
-    # ---------------------------------
+    # --------------------------------------------------
+    # 1. GET SECRET
+    # --------------------------------------------------
+    print("Fetching Secrets Manager secret...")
     secret = get_secret()
 
-    # ---------------------------------
-    # 2. BUILD profiles.yml IN /tmp
-    # ---------------------------------
-    profile_path = "/tmp/profiles.yml"
-    build_profiles(secret, profile_path)
+    # --------------------------------------------------
+    # 2. BUILD TEMP profiles.yml
+    # --------------------------------------------------
+    print("Creating /tmp/profiles.yml ...")
+    build_profiles(secret, PROFILE_PATH)
 
-    # ---------------------------------
-    # 3. READ GENERATED YAML
-    # ---------------------------------
-    with open(profile_path, "r") as f:
+    # --------------------------------------------------
+    # 3. LOAD CONFIG
+    # --------------------------------------------------
+    with open(PROFILE_PATH, "r") as f:
         config = yaml.safe_load(f)
 
     sf = config["streaming"]["outputs"]["dev"]
 
+    # --------------------------------------------------
+    # 4. CONNECTION VARIABLES
+    # --------------------------------------------------
     ACCOUNT = sf["account"]
     USER = sf["user"]
     PASSWORD = sf["password"]
@@ -67,18 +79,22 @@ def main():
     SCHEMA = sf["schema"]
     ROLE = sf["role"]
 
-    # ---------------------------------
-    # 4. FILE + TABLE
-    # ---------------------------------
+    # --------------------------------------------------
+    # 5. DATE / FILE / TABLE
+    # --------------------------------------------------
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
 
-    TABLE_NAME = f"EVENTS_{today}"
-    FILE_NAME = f"events_{today}.parquet"
-    FILE_PATH = f"/tmp/{FILE_NAME}"
+    table_name = f"EVENTS_{today}"
+    file_name = f"events_{today}.parquet"
+    file_path = f"{TMP_DIR}/{file_name}"
 
-    # ---------------------------------
-    # 5. CONNECT SNOWFLAKE
-    # ---------------------------------
+    print(f"Target table: {DATABASE}.{SCHEMA}.{table_name}")
+
+    # --------------------------------------------------
+    # 6. CONNECT SNOWFLAKE
+    # --------------------------------------------------
+    print("Connecting Snowflake...")
+
     conn = snowflake.connector.connect(
         user=USER,
         password=PASSWORD,
@@ -91,42 +107,100 @@ def main():
 
     cur = conn.cursor()
 
-    # ---------------------------------
-    # 6. GENERATE DATA
-    # ---------------------------------
+    try:
+
+        # --------------------------------------------------
+        # 7. GENERATE DATA
+        # --------------------------------------------------
+        print(f"Generating {ROWS_TO_GENERATE} rows...")
+
+        rows = generate_rows(today)
+
+        df = pd.DataFrame(rows)
+
+        # --------------------------------------------------
+        # 8. WRITE PARQUET
+        # --------------------------------------------------
+        print("Writing parquet file...")
+
+        table = pa.Table.from_pandas(df)
+        pq.write_table(table, file_path)
+
+        print("Parquet created:", file_path)
+
+        # --------------------------------------------------
+        # 9. CREATE TABLE
+        # --------------------------------------------------
+        print("Creating Snowflake table if not exists...")
+
+        create_table(cur, table_name)
+
+        # --------------------------------------------------
+        # 10. CREATE STAGE
+        # --------------------------------------------------
+        print("Creating stage / file format...")
+
+        create_stage(cur)
+
+        # --------------------------------------------------
+        # 11. PUT FILE
+        # --------------------------------------------------
+        print("Uploading parquet to Snowflake stage...")
+
+        cur.execute(f"""
+            PUT file://{file_path}
+            @demo_stage
+            AUTO_COMPRESS=FALSE
+            OVERWRITE=TRUE
+        """)
+
+        put_result = cur.fetchall()
+        print("PUT Result:", put_result)
+
+        # --------------------------------------------------
+        # 12. COPY INTO
+        # --------------------------------------------------
+        print("Loading parquet into Snowflake table...")
+
+        cur.execute(f"""
+            COPY INTO {table_name}
+            FROM @demo_stage/{file_name}
+            MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
+            FILE_FORMAT = (TYPE = PARQUET)
+        """)
+
+        copy_result = cur.fetchall()
+        print("COPY Result:", copy_result)
+
+        # --------------------------------------------------
+        # 13. VERIFY
+        # --------------------------------------------------
+        cur.execute(f"SELECT COUNT(*) FROM {table_name}")
+        count = cur.fetchone()[0]
+
+        print("Rows loaded:", count)
+
+        return {
+            "table_name": table_name,
+            "rows_loaded": count
+        }
+
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ======================================================
+# GENERATE DATA
+# ======================================================
+def generate_rows(today):
+
     rows = []
 
     for i in range(ROWS_TO_GENERATE):
 
         ts_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         ts_micro = ts_ms * 1000
-
-        traffic_source = {
-            "source": random.choice(
-                ["google", "facebook", "(direct)", "instagram"]
-            ),
-            "medium": random.choice(
-                ["cpc", "organic", "email"]
-            ),
-            "campaign": "demo_campaign"
-        }
-
-        event_params = [
-            {
-                "key": "value",
-                "value": {
-                    "double_value": random.choice([10, 20, 50])
-                }
-            },
-            {
-                "key": "page_location",
-                "value": {
-                    "string_value": random.choice(
-                        ["/home", "/product", "/checkout"]
-                    )
-                }
-            }
-        ]
 
         rows.append({
 
@@ -135,7 +209,16 @@ def main():
             "event_name": random.choice(
                 ["page_view", "click", "purchase", "session_start"]
             ),
-            "event_params": json.dumps(event_params),
+
+            "event_params": json.dumps([
+                {
+                    "key": "value",
+                    "value": {
+                        "double_value": random.choice([10, 20, 50])
+                    }
+                }
+            ]),
+
             "event_previous_timestamp": ts_micro - 5000,
             "event_value_in_usd": float(random.choice([10, 20, 50])),
             "event_bundle_sequence_id": i + 1,
@@ -149,45 +232,34 @@ def main():
                 "ads_storage": "Yes"
             }),
 
-            "user_properties": json.dumps([
-                {
-                    "key": "customer_type",
-                    "value": {
-                        "string_value": random.choice(
-                            ["new", "returning"]
-                        )
-                    }
-                }
-            ]),
+            "user_properties": json.dumps([]),
 
             "user_first_touch_timestamp": ts_micro - 1000000,
 
             "user_ltv": json.dumps({
-                "revenue": random.choice([100, 250, 500]),
+                "revenue": 100,
                 "currency": "USD"
             }),
 
             "device": json.dumps({
-                "category": "mobile",
-                "operating_system": random.choice(
-                    ["Android", "iOS"]
-                ),
-                "language": "en"
+                "category": "mobile"
             }),
 
             "geo": json.dumps({
-                "country": "India",
-                "city": random.choice(
-                    ["Kolkata", "Delhi", "Mumbai"]
-                )
+                "country": "India"
             }),
 
             "app_info": json.dumps({
-                "id": "com.demo.app",
-                "version": "1.0.0"
+                "id": "demo.app"
             }),
 
-            "traffic_source": json.dumps(traffic_source),
+            "traffic_source": json.dumps({
+                "source": random.choice(
+                    ["google", "facebook", "(direct)"]
+                ),
+                "medium": "cpc",
+                "campaign": "demo_campaign"
+            }),
 
             "stream_id": 1234567890,
 
@@ -200,34 +272,23 @@ def main():
             }),
 
             "ecommerce": json.dumps({
-                "purchase_revenue": random.choice([10, 20, 50]),
-                "transaction_id": f"txn_{i+1}"
+                "purchase_revenue": 20
             }),
 
-            "items": json.dumps([
-                {
-                    "item_id": f"SKU_{random.randint(1,20)}",
-                    "item_name": "Demo Product",
-                    "price": random.choice([10, 20, 50]),
-                    "quantity": 1
-                }
-            ])
+            "items": json.dumps([])
 
         })
 
-    # ---------------------------------
-    # 7. DATAFRAME -> PARQUET
-    # ---------------------------------
-    df = pd.DataFrame(rows)
+    return rows
 
-    table = pa.Table.from_pandas(df)
-    pq.write_table(table, FILE_PATH)
 
-    # ---------------------------------
-    # 8. CREATE TABLE
-    # ---------------------------------
+# ======================================================
+# CREATE TABLE
+# ======================================================
+def create_table(cur, table_name):
+
     cur.execute(f"""
-    CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
+    CREATE TABLE IF NOT EXISTS {table_name} (
 
         event_date VARCHAR,
         event_timestamp NUMBER(38,0),
@@ -260,46 +321,26 @@ def main():
     )
     """)
 
-    # ---------------------------------
-    # 9. STAGE
-    # ---------------------------------
-    cur.execute("""
-    CREATE FILE FORMAT IF NOT EXISTS parquet_format
-    TYPE = PARQUET
-    """)
+
+# ======================================================
+# CREATE STAGE
+# ======================================================
+def create_stage(cur):
 
     cur.execute("""
-    CREATE STAGE IF NOT EXISTS demo_stage
-    FILE_FORMAT = parquet_format
+        CREATE FILE FORMAT IF NOT EXISTS parquet_format
+        TYPE = PARQUET
     """)
 
-    # ---------------------------------
-    # 10. PUT FILE
-    # ---------------------------------
-    cur.execute(f"""
-    PUT file://{FILE_PATH}
-    @demo_stage
-    AUTO_COMPRESS=FALSE
-    OVERWRITE=TRUE
+    cur.execute("""
+        CREATE STAGE IF NOT EXISTS demo_stage
+        FILE_FORMAT = parquet_format
     """)
 
-    # ---------------------------------
-    # 11. COPY INTO
-    # ---------------------------------
-    cur.execute(f"""
-    COPY INTO {TABLE_NAME}
-    FROM @demo_stage/{FILE_NAME}
-    MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
-    FILE_FORMAT = (TYPE = PARQUET)
-    """)
 
-    cur.close()
-    conn.close()
-
-
-# =====================================
+# ======================================================
 # GET SECRET
-# =====================================
+# ======================================================
 def get_secret():
 
     client = boto3.client(
@@ -314,9 +355,9 @@ def get_secret():
     return json.loads(response["SecretString"])
 
 
-# =====================================
+# ======================================================
 # BUILD profiles.yml
-# =====================================
+# ======================================================
 def build_profiles(secret, file_path):
 
     profile = {

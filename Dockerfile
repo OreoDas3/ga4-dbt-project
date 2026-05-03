@@ -5,5 +5,4 @@ RUN pip install -r requirements.txt
 
 COPY stream_demo.py .
 
-
 CMD ["stream_demo.lambda_handler"]
