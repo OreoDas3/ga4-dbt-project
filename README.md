@@ -1,15 +1,31 @@
-Welcome to your new dbt project!
+🌟 main branch README.md
 
-### Using the starter project
+# GA4 Data Platform - Main Branch
 
-Try running the following commands:
-- dbt run
-- dbt test
+Enterprise-grade end-to-end analytics engineering project migrating GA4 data from BigQuery to Snowflake with dbt, AWS, orchestration, CI/CD, streaming ingestion, and dashboards.
 
+## Tech Stack
+- Snowflake
+- dbt Core
+- AWS Lambda
+- ECS Fargate
+- ECR
+- Step Functions
+- SNS Alerts
+- GitHub Actions
+- Streamlit / Snowflake Native Streamlit
 
-### Resources:
-- Learn more about dbt [in the docs](https://docs.getdbt.com/docs/introduction)
-- Check out [Discourse](https://discourse.getdbt.com/) for commonly asked questions and answers
-- Join the [chat](https://community.getdbt.com/) on Slack for live discussions and support
-- Find [dbt events](https://events.getdbt.com) near you
-- Check out [the blog](https://blog.getdbt.com/) for the latest news on dbt's development and best practices
+## Architecture
+BigQuery → Snowflake RAW → dbt Models → Analytics Layer → Dashboards
+
+## Branches
+- production → dbt production pipelines
+- streaming → Lambda real-time ingestion
+- dashboards → Streamlit dashboards
+
+## Highlights
+- Automated CI/CD
+- Containerized workloads
+- Orchestrated workflows
+- Real-time event simulation
+- Attribution analytics
