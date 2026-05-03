@@ -63,9 +63,13 @@ def main():
     # --------------------------------------------------
     # 3. LOAD CONFIG
     # --------------------------------------------------
+    print("Before reading profile")
+
     with open(PROFILE_PATH, "r") as f:
         config = yaml.safe_load(f)
-    print(config)
+
+    print("After reading profile")
+    print(str(config))
     sf = config["streaming"]["outputs"]["dev"]
 
     # --------------------------------------------------
