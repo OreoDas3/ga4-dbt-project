@@ -4,6 +4,8 @@
 
 Enterprise-grade end-to-end analytics engineering project migrating GA4 data from BigQuery to Snowflake with dbt, AWS, orchestration, CI/CD, streaming ingestion, and dashboards.
 
+<img width="2406" height="1575" alt="ga4_architecture (1)" src="https://github.com/user-attachments/assets/1a2c8ce6-1f46-4d2b-80d9-34d830b7a5ca" />
+
 ## Tech Stack
 - Snowflake
 - dbt Core
